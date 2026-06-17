@@ -337,14 +337,14 @@ input:focus, select:focus, textarea:focus { border-color: rgba(78, 222, 163, .66
 
 .progress.warn > span { background: var(--secondary); }
 
-.allocation, .score-row, .pause-item, .transaction-editor, .recurring-edit {
+.allocation, .score-row, .pause-item, .transaction-editor, .recurring-edit, .account-edit {
   display: grid;
   gap: 10px;
   padding: 13px 0;
   border-bottom: 1px solid rgba(255, 255, 255, .08);
 }
 
-.allocation:last-child, .score-row:last-child, .pause-item:last-child, .transaction-editor:last-child, .recurring-edit:last-child {
+.allocation:last-child, .score-row:last-child, .pause-item:last-child, .transaction-editor:last-child, .recurring-edit:last-child, .account-edit:last-child {
   border-bottom: 0;
 }
 

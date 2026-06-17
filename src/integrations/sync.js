@@ -1,4 +1,15 @@
 export function mergeRemoteSnapshot(current, snapshot) {
+  const accounts = snapshot.accounts.length
+    ? snapshot.accounts.map((account) => ({
+      id: account.id,
+      name: account.account_name,
+      institution: account.account_type || 'Bank',
+      purpose: /joint|halifax|household/i.test(`${account.account_name} ${account.account_type}`) ? 'household' : 'personal',
+      balance: Number(account.available_balance ?? account.current_balance ?? 0),
+      includeInSafeSpend: true,
+    }))
+    : current.accounts;
+
   const profile = snapshot.profile ? {
     ...current.profile,
     displayName: snapshot.profile.display_name || current.profile.displayName,
@@ -17,6 +28,7 @@ export function mergeRemoteSnapshot(current, snapshot) {
   const transactions = snapshot.transactions.length
     ? snapshot.transactions.map((tx) => ({
       id: tx.id,
+      accountId: tx.account_id,
       merchant: tx.merchant_name,
       category: tx.category || 'Other',
       classification: tx.user_classification || 'Planned',
@@ -62,5 +74,5 @@ export function mergeRemoteSnapshot(current, snapshot) {
     ].filter((goal, index, all) => all.findIndex((candidate) => candidate.id === goal.id) === index)
     : current.goals;
 
-  return { ...current, profile, transactions, recurring, opportunities, goals };
+  return { ...current, profile, accounts, transactions, recurring, opportunities, goals };
 }

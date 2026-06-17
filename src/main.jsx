@@ -97,15 +97,19 @@ const seed = {
     notifications: true,
     recoveryRoute: 'gentle',
   },
+  accounts: [
+    { id: 'lloyds-personal', name: 'Lloyds personal', institution: 'Lloyds', purpose: 'personal', balance: 0, includeInSafeSpend: true },
+    { id: 'halifax-joint', name: 'Halifax joint', institution: 'Halifax', purpose: 'household', balance: 0, includeInSafeSpend: true },
+  ],
   transactions: [
-    { id: 1, merchant: 'Lloyds current account', category: 'Income', classification: 'Essential', amount: 2450, date: '2026-05-21', type: 'income' },
-    { id: 2, merchant: 'Rent / mortgage', category: 'Housing', classification: 'Essential', amount: -780, date: '2026-06-01', type: 'bill' },
-    { id: 3, merchant: 'Council tax', category: 'Bills', classification: 'Essential', amount: -148, date: '2026-06-03', type: 'bill' },
-    { id: 4, merchant: 'Aldi', category: 'Food shopping', classification: 'Planned', amount: -34.6, date: '2026-06-14', type: 'spend' },
-    { id: 5, merchant: 'Tesco meal deal', category: 'Food shopping', classification: 'Enjoyed it', amount: -4.25, date: '2026-06-15', type: 'spend' },
-    { id: 6, merchant: 'Trading 212 SIPP', category: 'Savings', classification: 'Essential', amount: -75, date: '2026-06-10', type: 'invest' },
-    { id: 7, merchant: 'Real ale / pub', category: 'Entertainment', classification: 'Enjoyed it', amount: -22.8, date: '2026-06-15', type: 'spend' },
-    { id: 8, merchant: 'Victory Pro software', category: 'Shopping', classification: 'Work expense', amount: -18, date: '2026-06-12', type: 'spend' },
+    { id: 1, accountId: 'lloyds-personal', merchant: 'Lloyds current account', category: 'Income', classification: 'Essential', amount: 2450, date: '2026-05-21', type: 'income' },
+    { id: 2, accountId: 'halifax-joint', merchant: 'Rent / mortgage', category: 'Housing', classification: 'Essential', amount: -780, date: '2026-06-01', type: 'bill' },
+    { id: 3, accountId: 'halifax-joint', merchant: 'Council tax', category: 'Bills', classification: 'Essential', amount: -148, date: '2026-06-03', type: 'bill' },
+    { id: 4, accountId: 'halifax-joint', merchant: 'Aldi', category: 'Food shopping', classification: 'Planned', amount: -34.6, date: '2026-06-14', type: 'spend' },
+    { id: 5, accountId: 'lloyds-personal', merchant: 'Tesco meal deal', category: 'Food shopping', classification: 'Enjoyed it', amount: -4.25, date: '2026-06-15', type: 'spend' },
+    { id: 6, accountId: 'lloyds-personal', merchant: 'Trading 212 SIPP', category: 'Savings', classification: 'Essential', amount: -75, date: '2026-06-10', type: 'invest' },
+    { id: 7, accountId: 'lloyds-personal', merchant: 'Real ale / pub', category: 'Entertainment', classification: 'Enjoyed it', amount: -22.8, date: '2026-06-15', type: 'spend' },
+    { id: 8, accountId: 'lloyds-personal', merchant: 'Victory Pro software', category: 'Shopping', classification: 'Work expense', amount: -18, date: '2026-06-12', type: 'spend' },
   ],
   recurring: [
     { id: 1, merchant: 'Rent / mortgage', amount: 780, nextDate: '2026-07-01', status: 'Essential', active: true },
@@ -140,8 +144,10 @@ function migrateData(raw) {
   return {
     ...seed,
     profile: { ...seed.profile, ...(raw.profile || {}) },
+    accounts: raw.accounts || seed.accounts,
     transactions: (raw.transactions || seed.transactions).map((tx) => ({
       id: tx.id,
+      accountId: tx.accountId || (['Housing', 'Bills'].includes(tx.category) ? 'halifax-joint' : 'lloyds-personal'),
       merchant: tx.merchant || tx.name,
       category: tx.category,
       classification: tx.classification || tx.userClassification || 'Planned',
@@ -179,6 +185,18 @@ function useStoredState() {
   return [data, save, () => save(seed)];
 }
 
+function accountsFor(data) {
+  return data.accounts?.length ? data.accounts : seed.accounts;
+}
+
+function accountName(data, accountId) {
+  return accountsFor(data).find((account) => account.id === accountId)?.name || 'Unassigned';
+}
+
+function accountPurpose(data, accountId) {
+  return accountsFor(data).find((account) => account.id === accountId)?.purpose || 'personal';
+}
+
 function nextMonthlyDate(day) {
   const date = new Date(todayIso + 'T00:00:00');
   date.setDate(Number(day));
@@ -201,7 +219,9 @@ function clamp(value, min, max) {
 }
 
 function derive(data) {
-  const debits = data.transactions.filter((tx) => tx.amount < 0);
+  const includedAccountIds = new Set(accountsFor(data).filter((account) => account.includeInSafeSpend !== false).map((account) => account.id));
+  const includedTransactions = data.transactions.filter((tx) => !tx.accountId || includedAccountIds.has(tx.accountId));
+  const debits = includedTransactions.filter((tx) => tx.amount < 0);
   const balance = data.profile.monthlyIncome + debits.reduce((sum, tx) => sum + tx.amount, 0);
   const daysUntilPayday = Math.max(1, daysBetween(data.profile.payday));
   const protectedBills = data.recurring
@@ -214,6 +234,8 @@ function derive(data) {
   const flexible = Math.max(0, balance - protectedTotal);
   const safeToday = flexible / daysUntilPayday;
   const spentThisCycle = Math.abs(debits.filter((tx) => tx.type !== 'invest').reduce((sum, tx) => sum + tx.amount, 0));
+  const householdSpent = Math.abs(debits.filter((tx) => accountPurpose(data, tx.accountId) === 'household').reduce((sum, tx) => sum + tx.amount, 0));
+  const personalSpent = Math.abs(debits.filter((tx) => accountPurpose(data, tx.accountId) !== 'household').reduce((sum, tx) => sum + tx.amount, 0));
   const reviewedRecurring = data.recurring.filter((item) => item.status !== 'Not sure').length / Math.max(1, data.recurring.length);
   const impulseSpend = Math.abs(debits.filter((tx) => ['Impulsive', 'Regret'].includes(tx.classification)).reduce((sum, tx) => sum + tx.amount, 0));
   const savingsProgress = clamp(data.profile.currentSavings / Math.max(1, data.profile.savingsGoal), 0, 1);
@@ -245,7 +267,7 @@ function derive(data) {
   ];
   const oneAction = chooseAction({ data, safeToday, protectedBills, balance, totalScore });
   const scoreBand = totalScore >= 850 ? 'Strong' : totalScore >= 700 ? 'Steady' : totalScore >= 550 ? 'Building' : totalScore >= 400 ? 'Needs attention' : "Let's make a plan";
-  return { balance, daysUntilPayday, protectedBills, expectedEssentials, buffers, protectedTotal, flexible, safeToday, spentThisCycle, score, totalScore, scoreBand, nextPayments, plan, oneAction };
+  return { balance, daysUntilPayday, protectedBills, expectedEssentials, buffers, protectedTotal, flexible, safeToday, spentThisCycle, householdSpent, personalSpent, score, totalScore, scoreBand, nextPayments, plan, oneAction };
 }
 
 function spentBy(data, cats) {
@@ -351,10 +373,10 @@ function typeFor(category, amount) {
 }
 
 function transactionKey(tx) {
-  return [tx.date, tx.merchant.toLowerCase(), Number(tx.amount).toFixed(2)].join('|');
+  return [tx.accountId || 'unassigned', tx.date, tx.merchant.toLowerCase(), Number(tx.amount).toFixed(2)].join('|');
 }
 
-function parseTransactionsCsv(text) {
+function parseTransactionsCsv(text, accountId = 'lloyds-personal') {
   const rows = parseCsv(text);
   if (rows.length < 2) return [];
   const headers = rows[0].map(normaliseHeader);
@@ -369,6 +391,7 @@ function parseTransactionsCsv(text) {
     const category = inferCategory(merchant, amount);
     return {
       id: `csv-${date}-${index}-${Math.abs(amount).toFixed(2)}-${merchant.slice(0, 18)}`,
+      accountId,
       merchant,
       category,
       classification: amount > 0 ? 'Essential' : 'Planned',
@@ -453,7 +476,7 @@ function HomePage({ data, stats, setActive }) {
           <h2>Recent activity</h2>
           <button className="text-btn" onClick={() => setActive('transactions')}>All <ChevronRight size={16} /></button>
         </div>
-        {data.transactions.slice(-4).reverse().map((tx) => <TransactionRow key={tx.id} tx={tx} />)}
+        {data.transactions.slice(-4).reverse().map((tx) => <TransactionRow key={tx.id} tx={tx} data={data} />)}
       </section>
     </main>
   );
@@ -491,6 +514,25 @@ function PlanPage({ data, save, stats, setActive }) {
           <label>Emergency buffer<input type="number" value={data.profile.emergencyBuffer} onChange={(event) => setProfile({ emergencyBuffer: Number(event.target.value) })} /></label>
           <label>Forgotten-cost buffer<input type="number" value={data.profile.forgottenCostBuffer} onChange={(event) => setProfile({ forgottenCostBuffer: Number(event.target.value) })} /></label>
         </div>
+      </section>
+      <section className="card">
+        <div className="section-title">
+          <h2>Accounts</h2>
+          <span className="pill safe">{currency.format(stats.balance)} planned balance</span>
+        </div>
+        {accountsFor(data).map((account) => (
+          <div className="row" key={account.id}>
+            <div className="left">
+              <div className="avatar"><Landmark size={20} /></div>
+              <div><p className="title">{account.name}</p><p className="meta">{account.purpose === 'household' ? 'Household and joint costs' : 'Personal money'} · {account.includeInSafeSpend === false ? 'Excluded' : 'Included'}</p></div>
+            </div>
+            <strong>{currency.format(account.balance || 0)}</strong>
+          </div>
+        ))}
+      </section>
+      <section className="grid-2">
+        <Metric icon={Home} label="Household spend" value={currency.format(stats.householdSpent)} tone="primary" />
+        <Metric icon={WalletCards} label="Personal spend" value={currency.format(stats.personalSpent)} tone="secondary" />
       </section>
       <section className="card">
         <div className="section-title">
@@ -702,7 +744,8 @@ function RecoveryPage({ data, save, stats }) {
 function TransactionsPage({ data, save }) {
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
-  const [draft, setDraft] = useState({ merchant: '', amount: '', direction: 'out', category: 'Shopping', classification: 'Planned', date: todayIso });
+  const [selectedImportAccount, setSelectedImportAccount] = useState('lloyds-personal');
+  const [draft, setDraft] = useState({ merchant: '', amount: '', direction: 'out', accountId: 'lloyds-personal', category: 'Shopping', classification: 'Planned', date: todayIso });
   const [importSummary, setImportSummary] = useState('');
   const csvRef = useRef(null);
   const list = data.transactions
@@ -719,15 +762,15 @@ function TransactionsPage({ data, save }) {
     const category = draft.direction === 'in' ? 'Income' : draft.category;
     save((current) => ({
       ...current,
-      transactions: [...current.transactions, { id: Date.now(), merchant: draft.merchant, amount: signedAmount, category, classification: draft.classification, date: draft.date, type: typeFor(category, signedAmount) }],
+      transactions: [...current.transactions, { id: Date.now(), accountId: draft.accountId, merchant: draft.merchant, amount: signedAmount, category, classification: draft.classification, date: draft.date, type: typeFor(category, signedAmount) }],
     }));
-    setDraft({ merchant: '', amount: '', direction: 'out', category: 'Shopping', classification: 'Planned', date: todayIso });
+    setDraft({ merchant: '', amount: '', direction: 'out', accountId: draft.accountId, category: 'Shopping', classification: 'Planned', date: todayIso });
   };
   const importCsv = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      const imported = parseTransactionsCsv(await file.text());
+      const imported = parseTransactionsCsv(await file.text(), selectedImportAccount);
       save((current) => {
         const existing = new Set(current.transactions.map(transactionKey));
         const fresh = imported.filter((tx) => !existing.has(transactionKey(tx)));
@@ -751,7 +794,10 @@ function TransactionsPage({ data, save }) {
       </section>
       <section className="card form">
         <h2>Import Lloyds history</h2>
-        <p className="subtle">Use the PDF converter for monthly statements, then import the generated CSV here. Existing transactions with the same date, merchant and amount are skipped.</p>
+        <p className="subtle">Use the PDF converter for monthly statements, then import the generated CSV here. Pick the statement account first.</p>
+        <label>Statement account<select value={selectedImportAccount} onChange={(event) => setSelectedImportAccount(event.target.value)}>
+          {accountsFor(data).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+        </select></label>
         <input ref={csvRef} className="hidden-file" type="file" accept=".csv,text/csv" onChange={importCsv} />
         <button className="secondary-btn" onClick={() => csvRef.current?.click()}><Upload size={18} /> Import CSV</button>
         {importSummary && <p className="pill safe"><CheckCircle2 size={16} /> {importSummary}</p>}
@@ -759,6 +805,9 @@ function TransactionsPage({ data, save }) {
       <section className="card form">
         <h2>Add manual transaction</h2>
         <label>Merchant<input value={draft.merchant} onChange={(event) => setDraft({ ...draft, merchant: event.target.value })} placeholder="Merchant" /></label>
+        <label>Account<select value={draft.accountId} onChange={(event) => setDraft({ ...draft, accountId: event.target.value })}>
+          {accountsFor(data).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+        </select></label>
         <div className="inline-fields">
           <label>Amount<input type="number" value={draft.amount} onChange={(event) => setDraft({ ...draft, amount: event.target.value })} /></label>
           <label>Date<input type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} /></label>
@@ -774,16 +823,16 @@ function TransactionsPage({ data, save }) {
         <button className="primary-btn" onClick={addTx}><Plus size={18} /> Add transaction</button>
       </section>
       <section className="card">
-        {list.slice().reverse().map((tx) => <TransactionEditor key={tx.id} tx={tx} updateTx={updateTx} />)}
+        {list.slice().reverse().map((tx) => <TransactionEditor key={tx.id} tx={tx} data={data} updateTx={updateTx} />)}
       </section>
     </main>
   );
 }
 
-function TransactionEditor({ tx, updateTx }) {
+function TransactionEditor({ tx, data, updateTx }) {
   return (
     <div className="transaction-editor">
-      <TransactionRow tx={tx} />
+      <TransactionRow tx={tx} data={data} />
       {tx.amount < 0 && (
         <div className="inline-fields compact-fields">
           <select value={tx.category} onChange={(event) => updateTx(tx.id, { category: event.target.value })}>{categories.map((item) => <option key={item}>{item}</option>)}</select>
@@ -797,6 +846,10 @@ function TransactionEditor({ tx, updateTx }) {
 function SettingsPage({ data, save, reset, setActive, session, integrationStatus, setIntegrationStatus }) {
   const fileRef = useRef(null);
   const setProfile = (patch) => save((current) => ({ ...current, profile: { ...current.profile, ...patch } }));
+  const updateAccount = (id, patch) => save((current) => ({
+    ...current,
+    accounts: accountsFor(current).map((account) => account.id === id ? { ...account, ...patch } : account),
+  }));
   const updateRecurring = (id, patch) => save((current) => ({
     ...current,
     recurring: current.recurring.map((item) => item.id === id ? { ...item, ...patch } : item),
@@ -866,6 +919,22 @@ function SettingsPage({ data, save, reset, setActive, session, integrationStatus
         <label className="toggle"><span>Calm notifications</span><input type="checkbox" checked={data.profile.notifications} onChange={(event) => setProfile({ notifications: event.target.checked })} /></label>
         <label>Savings target<input type="number" value={data.profile.savingsGoal} onChange={(event) => setProfile({ savingsGoal: Number(event.target.value) })} /></label>
         <label>Current savings<input type="number" value={data.profile.currentSavings} onChange={(event) => setProfile({ currentSavings: Number(event.target.value) })} /></label>
+      </section>
+      <section className="card form">
+        <h2>Bank accounts</h2>
+        {accountsFor(data).map((account) => (
+          <div className="account-edit" key={account.id}>
+            <label>Name<input value={account.name} onChange={(event) => updateAccount(account.id, { name: event.target.value })} /></label>
+            <div className="inline-fields">
+              <label>Purpose<select value={account.purpose} onChange={(event) => updateAccount(account.id, { purpose: event.target.value })}>
+                <option value="personal">Personal</option>
+                <option value="household">Household</option>
+              </select></label>
+              <label>Balance<input type="number" value={account.balance || 0} onChange={(event) => updateAccount(account.id, { balance: Number(event.target.value) })} /></label>
+            </div>
+            <label className="toggle"><span>Include in SafeSpend</span><input type="checkbox" checked={account.includeInSafeSpend !== false} onChange={(event) => updateAccount(account.id, { includeInSafeSpend: event.target.checked })} /></label>
+          </div>
+        ))}
       </section>
       <section className="card">
         <div className="section-title"><h2>Recurring classifications</h2><SlidersHorizontal size={20} /></div>
@@ -960,13 +1029,13 @@ function RecurringRow({ item, compact }) {
   );
 }
 
-function TransactionRow({ tx }) {
+function TransactionRow({ tx, data }) {
   const Icon = tx.type === 'income' ? Banknote : tx.type === 'invest' ? TrendingUp : CreditCard;
   return (
     <div className="row">
       <div className="left">
         <div className="avatar"><Icon size={20} /></div>
-        <div><p className="title">{tx.merchant}</p><p className="meta">{tx.category} · {tx.classification} · {tx.date}</p></div>
+        <div><p className="title">{tx.merchant}</p><p className="meta">{accountName(data, tx.accountId)} · {tx.category} · {tx.classification} · {tx.date}</p></div>
       </div>
       <div className={`amount ${tx.amount < 0 ? 'negative' : 'positive'}`}>{currency.format(tx.amount)}</div>
     </div>
