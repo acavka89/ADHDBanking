@@ -40,7 +40,8 @@ import {
   hasSupabaseConfig,
   invokeFunction,
   loadRemoteSnapshot,
-  signInWithEmail,
+  signInWithPassword,
+  signUpWithPassword,
   signOut,
   supabase,
 } from './integrations/supabase.js';
@@ -961,16 +962,6 @@ function SettingsPage({ data, save, reset, setActive, session, integrationStatus
 }
 
 function AuthPanel({ session, integrationStatus, setIntegrationStatus }) {
-  const [email, setEmail] = useState('');
-  const sendLink = async () => {
-    try {
-      setIntegrationStatus('Sending link');
-      await signInWithEmail(email);
-      setIntegrationStatus('Check your email');
-    } catch (error) {
-      setIntegrationStatus(error instanceof Error ? error.message : 'Sign in failed');
-    }
-  };
   const endSession = async () => {
     await signOut();
     setIntegrationStatus('Signed out');
@@ -989,17 +980,8 @@ function AuthPanel({ session, integrationStatus, setIntegrationStatus }) {
         <h2>Supabase account</h2>
         <p className={session ? 'pill safe' : 'pill warn'}>{session ? 'Signed in' : 'Not signed in'}</p>
       </div>
-      {session ? (
-        <>
-          <p className="subtle">{session.user.email}</p>
-          <button className="secondary-btn" onClick={endSession}>Sign out</button>
-        </>
-      ) : (
-        <>
-          <label>Email<input value={email} type="email" onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></label>
-          <button className="primary-btn" onClick={sendLink}>Send magic link</button>
-        </>
-      )}
+      <p className="subtle">{session?.user?.email || 'Sign in from the login screen.'}</p>
+      {session && <button className="secondary-btn" onClick={endSession}>Sign out</button>}
       <p className="meta">Status: {integrationStatus}</p>
     </section>
   );
@@ -1042,6 +1024,52 @@ function TransactionRow({ tx, data }) {
   );
 }
 
+function LoginScreen({ integrationStatus, setIntegrationStatus }) {
+  const [email, setEmail] = useState('adamjcarr@proton.me');
+  const [password, setPassword] = useState('');
+  const [mode, setMode] = useState('signin');
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!email || !password) {
+      setIntegrationStatus('Enter email and password');
+      return;
+    }
+    try {
+      setIntegrationStatus(mode === 'signin' ? 'Signing in' : 'Creating account');
+      if (mode === 'signin') {
+        await signInWithPassword(email, password);
+      } else {
+        await signUpWithPassword(email, password);
+      }
+      setIntegrationStatus('Signed in');
+    } catch (error) {
+      setIntegrationStatus(error instanceof Error ? error.message : 'Authentication failed');
+    }
+  };
+
+  return (
+    <main className="login-shell">
+      <section className="login-card">
+        <div className="brand login-brand"><WalletCards size={30} /> SafeSpend</div>
+        <h1>Sign in</h1>
+        <p className="subtle">Your money plan stays private behind your Supabase account.</p>
+        {!hasSupabaseConfig && (
+          <p className="pill wait"><AlertTriangle size={16} /> Supabase is not configured for this build</p>
+        )}
+        <form className="form" onSubmit={submit}>
+          <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" /></label>
+          <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} /></label>
+          <button className="primary-btn" type="submit" disabled={!hasSupabaseConfig}>{mode === 'signin' ? 'Sign in' : 'Create account'}</button>
+        </form>
+        <button className="text-btn login-switch" onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}>
+          {mode === 'signin' ? 'Create this account instead' : 'I already have this account'}
+        </button>
+        <p className="meta">Status: {integrationStatus}</p>
+      </section>
+    </main>
+  );
+}
+
 function App() {
   const [active, setActive] = useState('home');
   const [data, save, reset] = useStoredState();
@@ -1070,6 +1098,11 @@ function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [active]);
+
+  if (!session) {
+    return <LoginScreen integrationStatus={integrationStatus} setIntegrationStatus={setIntegrationStatus} />;
+  }
+
   return (
     <div className="app-shell">
       <Header setActive={setActive} integrationStatus={integrationStatus} />

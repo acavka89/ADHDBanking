@@ -78,12 +78,24 @@ npx supabase functions deploy gocardless-sync
 npx supabase functions deploy trading212-sync
 ```
 
-## 5. Test the PWA flow
+## 5. Password login
+
+The app now shows a login screen before SafeSpend loads.
+
+In Supabase, make sure Email/Password auth is enabled:
+
+```text
+Authentication -> Providers -> Email
+```
+
+For a personal prototype, either create the user in Supabase Authentication manually, or use the app's "Create this account instead" option once. If Supabase requires email confirmation, confirm the user in the dashboard or disable email confirmations for this personal prototype.
+
+## 6. Test the PWA flow
 
 1. Open the app.
-2. Go to More.
-3. Send yourself a Supabase magic link and sign in.
-4. Use Connect for GoCardless bank consent.
+2. Sign in with your Supabase email/password.
+3. Go to More.
+4. Use Connect for GoCardless bank consent if a provider becomes available.
 5. Use Sync bank transactions after consent returns.
 6. Use Sync for Trading 212 after secrets are set.
 
