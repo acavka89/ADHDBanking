@@ -748,8 +748,6 @@ function TransactionsPage({ data, save }) {
   const [selectedImportAccount, setSelectedImportAccount] = useState('lloyds-personal');
   const [draft, setDraft] = useState({ merchant: '', amount: '', direction: 'out', accountId: 'lloyds-personal', category: 'Shopping', classification: 'Planned', date: todayIso });
   const [importSummary, setImportSummary] = useState('');
-  const csvRef = useRef(null);
-  const pdfRef = useRef(null);
   const list = data.transactions
     .filter((tx) => filter === 'all' || tx.category === filter || tx.type === filter)
     .filter((tx) => tx.merchant.toLowerCase().includes(query.toLowerCase()));
@@ -820,10 +818,10 @@ function TransactionsPage({ data, save }) {
         <label>Statement account<select value={selectedImportAccount} onChange={(event) => setSelectedImportAccount(event.target.value)}>
           {accountsFor(data).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
         </select></label>
-        <input ref={pdfRef} className="hidden-file" type="file" accept="application/pdf,.pdf" multiple onChange={importPdfs} />
-        <input ref={csvRef} className="hidden-file" type="file" accept=".csv,text/csv" onChange={importCsv} />
-        <button className="primary-btn" onClick={() => pdfRef.current?.click()}><Upload size={18} /> Import PDF statements</button>
-        <button className="secondary-btn" onClick={() => csvRef.current?.click()}><Upload size={18} /> Import converted CSV</button>
+        <input id="pdf-import" className="visually-hidden-file" type="file" accept=".pdf,application/pdf,application/x-pdf,com.adobe.pdf" multiple onChange={importPdfs} />
+        <input id="csv-import" className="visually-hidden-file" type="file" accept=".csv,text/csv,application/vnd.ms-excel" onChange={importCsv} />
+        <label className="primary-btn file-trigger" htmlFor="pdf-import"><Upload size={18} /> Import PDF statements</label>
+        <label className="secondary-btn file-trigger" htmlFor="csv-import"><Upload size={18} /> Import converted CSV</label>
         {importSummary && <p className="pill safe"><CheckCircle2 size={16} /> {importSummary}</p>}
       </section>
       <section className="card form">
