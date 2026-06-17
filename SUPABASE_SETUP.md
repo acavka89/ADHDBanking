@@ -7,6 +7,7 @@ Copy `.env.example` to `.env.local` and fill the public browser values:
 ```bash
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-or-publishable-key
+VITE_AUTH_REDIRECT_URL=http://localhost:5173
 ```
 
 Restart Vite after changing `.env.local`.
@@ -22,7 +23,23 @@ Add both variables for Production, Preview and Development as needed, then redep
 ```bash
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-or-publishable-key
+VITE_AUTH_REDIRECT_URL=https://your-vercel-app.vercel.app
 ```
+
+Also add the same live Vercel URL in Supabase:
+
+```text
+Supabase -> Authentication -> URL Configuration
+```
+
+Set **Site URL** to your production Vercel URL and add these **Redirect URLs**:
+
+```text
+https://your-vercel-app.vercel.app
+http://localhost:5173
+```
+
+For Vercel preview deployments, add a wildcard redirect URL for your preview domain if you use previews.
 
 ## 2. Link the Supabase project
 

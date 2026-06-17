@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const authRedirectUrl = import.meta.env.VITE_AUTH_REDIRECT_URL || window.location.origin;
 
 export const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
 
@@ -13,7 +14,7 @@ export async function signInWithEmail(email) {
   if (!supabase) throw new Error('Supabase is not configured');
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: window.location.origin },
+    options: { emailRedirectTo: authRedirectUrl },
   });
   if (error) throw error;
 }
