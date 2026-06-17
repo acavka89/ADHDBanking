@@ -786,19 +786,9 @@ function TransactionsPage({ data, save }) {
     const files = [...(event.target.files || [])];
     if (!files.length) return;
     try {
-      const pdfs = files.filter((file) => {
-        const name = file.name?.toLowerCase() || '';
-        const type = (file.type || '').toLowerCase();
-        return name.endsWith('.pdf') || type.includes('pdf');
-      });
-      if (!pdfs.length) {
-        setImportSummary('Choose one or more PDF statements from Files.');
-        event.target.value = '';
-        return;
-      }
-      setImportSummary(`Reading ${pdfs.length} PDF statement${pdfs.length === 1 ? '' : 's'}...`);
+      setImportSummary(`Reading ${files.length} statement file${files.length === 1 ? '' : 's'}...`);
       const { parseLloydsStatementPdf } = await import('./integrations/lloydsPdf.js');
-      const imported = (await Promise.all(pdfs.map((file) => parseLloydsStatementPdf(file, selectedImportAccount)))).flat();
+      const imported = (await Promise.all(files.map((file) => parseLloydsStatementPdf(file, selectedImportAccount)))).flat();
       save((current) => {
         const existing = new Set(current.transactions.map(transactionKey));
         const fresh = imported.filter((tx) => !existing.has(transactionKey(tx)));
@@ -808,7 +798,7 @@ function TransactionsPage({ data, save }) {
         return { ...current, transactions: [...current.transactions, ...fresh].sort((a, b) => a.date.localeCompare(b.date)) };
       });
     } catch (error) {
-      setImportSummary(error instanceof Error ? error.message : 'PDF import failed');
+      setImportSummary(error instanceof Error ? `Statement import failed: ${error.message}` : 'Statement import failed');
     }
     event.target.value = '';
   };
@@ -828,10 +818,12 @@ function TransactionsPage({ data, save }) {
         <label>Statement account<select value={selectedImportAccount} onChange={(event) => setSelectedImportAccount(event.target.value)}>
           {accountsFor(data).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
         </select></label>
-        <input id="pdf-import" className="visually-hidden-file" type="file" multiple onChange={importPdfs} />
-        <input id="csv-import" className="visually-hidden-file" type="file" accept=".csv,text/csv,application/vnd.ms-excel" onChange={importCsv} />
-        <label className="primary-btn file-trigger" htmlFor="pdf-import"><Upload size={18} /> Import PDF statements</label>
-        <label className="secondary-btn file-trigger" htmlFor="csv-import"><Upload size={18} /> Import converted CSV</label>
+        <label>PDF statements
+          <input className="file-input" type="file" multiple onChange={importPdfs} />
+        </label>
+        <label>Converted CSV backup
+          <input className="file-input" type="file" accept=".csv,text/csv,application/vnd.ms-excel" onChange={importCsv} />
+        </label>
         {importSummary && <p className="pill safe"><CheckCircle2 size={16} /> {importSummary}</p>}
       </section>
       <section className="card form">
@@ -1161,6 +1153,10 @@ createRoot(document.getElementById('root')).render(<App />);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.getRegistrations()
+      .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+      .then(() => ('caches' in window ? caches.keys() : []))
+      .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+      .catch(() => {});
   });
 }
