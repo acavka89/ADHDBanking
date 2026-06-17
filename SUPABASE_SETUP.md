@@ -1,0 +1,65 @@
+# SafeSpend Supabase setup
+
+## 1. Local environment
+
+Copy `.env.example` to `.env.local` and fill the public browser values:
+
+```bash
+VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-or-publishable-key
+```
+
+Restart Vite after changing `.env.local`.
+
+## 2. Link the Supabase project
+
+The Supabase CLI is not installed globally in this repo, so use `npx`:
+
+```bash
+npx supabase login
+npx supabase link --project-ref your-project-ref
+npx supabase db push
+```
+
+## 3. Set Edge Function secrets
+
+Create `supabase/functions/.env` locally from `.env.example`, then set secrets:
+
+```bash
+npx supabase secrets set --env-file supabase/functions/.env
+```
+
+Required secrets:
+
+- `GOCARDLESS_SECRET_ID`
+- `GOCARDLESS_SECRET_KEY`
+- `GOCARDLESS_REDIRECT_URL`
+- `TRADING212_ENV` set to `demo` or `live`
+- `TRADING212_API_KEY`
+- `TRADING212_API_SECRET`
+
+For a public product, do not store per-user Trading 212 API secrets as plain text. Use a proper encrypted secret store or a provider-side OAuth-style flow if Trading 212 offers one for your release model.
+
+## 4. Deploy Edge Functions
+
+```bash
+npx supabase functions deploy gocardless-start
+npx supabase functions deploy gocardless-sync
+npx supabase functions deploy trading212-sync
+```
+
+## 5. Test the PWA flow
+
+1. Open the app.
+2. Go to More.
+3. Send yourself a Supabase magic link and sign in.
+4. Use Connect for GoCardless bank consent.
+5. Use Sync bank transactions after consent returns.
+6. Use Sync for Trading 212 after secrets are set.
+
+## Notes
+
+- GoCardless bank access and Trading 212 calls run only from Supabase Edge Functions.
+- The PWA uses only Supabase public URL and anon/publishable key.
+- Row Level Security is enabled for all user-owned tables.
+- This is information and budgeting support only. It is not financial advice.
