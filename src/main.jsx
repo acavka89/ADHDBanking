@@ -979,7 +979,7 @@ function AuthPanel({ session, integrationStatus, setIntegrationStatus }) {
     return (
       <section className="card">
         <h2>Supabase not configured</h2>
-        <p className="subtle">Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to `.env.local`, then restart Vite.</p>
+        <p className="subtle">Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in your local `.env.local` or your Vercel project environment variables, then redeploy.</p>
       </section>
     );
   }

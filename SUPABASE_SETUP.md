@@ -11,6 +11,19 @@ VITE_SUPABASE_ANON_KEY=your-anon-or-publishable-key
 
 Restart Vite after changing `.env.local`.
 
+For Vercel, add the same values under:
+
+```text
+Project Settings -> Environment Variables
+```
+
+Add both variables for Production, Preview and Development as needed, then redeploy:
+
+```bash
+VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-or-publishable-key
+```
+
 ## 2. Link the Supabase project
 
 The Supabase CLI is not installed globally in this repo, so use `npx`:
