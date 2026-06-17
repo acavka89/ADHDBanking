@@ -1037,11 +1037,17 @@ function LoginScreen({ integrationStatus, setIntegrationStatus }) {
     try {
       setIntegrationStatus(mode === 'signin' ? 'Signing in' : 'Creating account');
       if (mode === 'signin') {
-        await signInWithPassword(email, password);
+        const result = await signInWithPassword(email, password);
+        setIntegrationStatus(result.session ? 'Signed in' : 'Sign in needs confirmation');
       } else {
-        await signUpWithPassword(email, password);
+        const result = await signUpWithPassword(email, password);
+        if (result.session) {
+          setIntegrationStatus('Signed in');
+        } else {
+          setMode('signin');
+          setIntegrationStatus('Account created. Confirm the user in Supabase, then sign in.');
+        }
       }
-      setIntegrationStatus('Signed in');
     } catch (error) {
       setIntegrationStatus(error instanceof Error ? error.message : 'Authentication failed');
     }
@@ -1064,6 +1070,7 @@ function LoginScreen({ integrationStatus, setIntegrationStatus }) {
         <button className="text-btn login-switch" onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}>
           {mode === 'signin' ? 'Create this account instead' : 'I already have this account'}
         </button>
+        {mode === 'signup' && <p className="meta">If Supabase email confirmations are enabled, confirm this user in the Supabase dashboard before signing in.</p>}
         <p className="meta">Status: {integrationStatus}</p>
       </section>
     </main>

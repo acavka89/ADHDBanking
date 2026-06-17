@@ -90,6 +90,18 @@ Authentication -> Providers -> Email
 
 For a personal prototype, either create the user in Supabase Authentication manually, or use the app's "Create this account instead" option once. If Supabase requires email confirmation, confirm the user in the dashboard or disable email confirmations for this personal prototype.
 
+To avoid the signup screen waiting for email confirmation during personal testing:
+
+```text
+Authentication -> Providers -> Email -> Confirm email
+```
+
+Turn confirmation off, or create/confirm the user manually under:
+
+```text
+Authentication -> Users
+```
+
 ## 6. Test the PWA flow
 
 1. Open the app.
