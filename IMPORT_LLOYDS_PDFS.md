@@ -2,6 +2,18 @@
 
 Use this for a one-time history backfill when Lloyds or Halifax only gives monthly PDF statements.
 
+## Fast path: import PDFs in the app
+
+Open SafeSpend and go to:
+
+```text
+Transactions -> Import Lloyds history
+```
+
+Choose the matching statement account first, then select one or more PDF statements with **Import PDF statements**.
+
+The app parses the statement locally in your browser. For the Lloyds sample statement format, the parser checks the PDF text positions so Money In, Money Out and Balance land in the right columns.
+
 ## 1. Put statements somewhere local
 
 For example:
@@ -18,7 +30,9 @@ If you also have Halifax joint statements, put them in a separate folder, for ex
 mkdir -p ~/Downloads/halifax-statements
 ```
 
-## 2. Convert PDFs to SafeSpend CSV
+## Backup path: convert PDFs to SafeSpend CSV
+
+Use this only if browser PDF import does not handle a statement.
 
 From this repo:
 

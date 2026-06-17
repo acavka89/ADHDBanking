@@ -19,6 +19,8 @@ import pdfplumber
 
 DATE_RE = re.compile(r"\b(\d{1,2})[ /-]([A-Za-z]{3,9}|\d{1,2})[ /-](\d{2,4})\b")
 AMOUNT_RE = re.compile(r"(?<!\w)-?\d{1,3}(?:,\d{3})*(?:\.\d{2})")
+LLOYDS_DATE_TOKEN_RE = re.compile(r"^D(?P<tens>\d)ate$")
+DESCRIPTION_MARKER_RE = re.compile(r"^D(?P<prefix>.)(?:escription)$", re.IGNORECASE)
 MONTHS = {
     "jan": "01",
     "january": "01",
@@ -74,7 +76,20 @@ def normalise_date(raw: str) -> str:
 
 
 def money(value: str) -> str:
-    return value.replace(",", "").strip()
+    match = AMOUNT_RE.search(value)
+    return match.group(0).replace(",", "").strip() if match else ""
+
+
+def money_from_words(words: list[dict], left: float, right: float | None = None) -> str:
+    for word in words:
+        if word["x0"] < left:
+            continue
+        if right is not None and word["x0"] >= right:
+            continue
+        amount = money(word["text"])
+        if amount:
+            return amount
+    return ""
 
 
 def clean_description(text: str) -> str:
@@ -134,6 +149,69 @@ def transaction_from_line(line: str, source_file: str) -> Transaction | None:
         money_in = ""
 
     return Transaction(date, description, money_out, money_in, balance, source_file)
+
+
+def description_from_words(words: list[dict]) -> str:
+    desc_words = [word["text"] for word in words if 110 <= word["x0"] < 270]
+    if not desc_words:
+        return ""
+
+    marker = DESCRIPTION_MARKER_RE.match(desc_words[0])
+    if marker:
+        prefix = marker.group("prefix")
+        rest = desc_words[1:]
+        if rest:
+            desc_words = [f"{prefix}{rest[0]}", *rest[1:]]
+        else:
+            desc_words = [prefix]
+
+    return clean_description(" ".join(desc_words))
+
+
+def type_from_words(words: list[dict]) -> str:
+    type_words = [word["text"] for word in words if 270 <= word["x0"] < 320]
+    cleaned = [word for word in type_words if not word.lower().startswith("t")]
+    return cleaned[-1] if cleaned else ""
+
+
+def transactions_from_positioned_words(page, source_file: str) -> list[Transaction]:
+    words = page.extract_words(x_tolerance=1, y_tolerance=3, keep_blank_chars=False)
+    transactions: list[Transaction] = []
+
+    for word in words:
+        match = LLOYDS_DATE_TOKEN_RE.match(word["text"])
+        if not match:
+            continue
+
+        row = sorted(
+            [candidate for candidate in words if abs(candidate["top"] - word["top"]) < 3],
+            key=lambda candidate: candidate["x0"],
+        )
+        date_index = row.index(word)
+        if date_index + 3 >= len(row):
+            continue
+
+        date = normalise_date(
+            f"{match.group('tens')}{row[date_index + 1]['text']} {row[date_index + 2]['text']} {row[date_index + 3]['text']}"
+        )
+        description = description_from_words(row)
+        if not date or not description:
+            continue
+
+        money_in = money_from_words(row, 320, 424)
+        money_out = money_from_words(row, 424, 500)
+        balance = money_from_words(row, 500)
+        tx_type = type_from_words(row)
+
+        # The statement sometimes places incoming Faster Payments in the Money In
+        # column with the text "Money In" after the amount; outgoing rows have
+        # the amount much further right, so coordinates are the least fragile cue.
+        if money_in and not money_out:
+            transactions.append(Transaction(date, f"{description} ({tx_type})".strip(), "", money_in, balance, source_file))
+        elif money_out:
+            transactions.append(Transaction(date, f"{description} ({tx_type})".strip(), money_out, "", balance, source_file))
+
+    return transactions
 
 
 def transactions_from_table(table: list[list[str | None]], source_file: str) -> list[Transaction]:
@@ -199,6 +277,11 @@ def extract_transactions(pdf_path: Path) -> list[Transaction]:
     transactions: list[Transaction] = []
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
+            positioned = transactions_from_positioned_words(page, pdf_path.name)
+            if positioned:
+                transactions.extend(positioned)
+                continue
+
             tables = page.extract_tables() or []
             for table in tables:
                 transactions.extend(transactions_from_table(table, pdf_path.name))
@@ -208,9 +291,9 @@ def extract_transactions(pdf_path: Path) -> list[Transaction]:
                 if tx:
                     transactions.append(tx)
 
-    unique: dict[tuple[str, str, str, str], Transaction] = {}
+    unique: dict[tuple[str, str, str, str, str], Transaction] = {}
     for tx in transactions:
-        unique[(tx.date, tx.description.lower(), tx.money_out, tx.money_in)] = tx
+        unique[(tx.date, tx.description.lower(), tx.money_out, tx.money_in, tx.balance)] = tx
     return sorted(unique.values(), key=lambda item: (item.date, item.description))
 
 

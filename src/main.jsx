@@ -374,7 +374,7 @@ function typeFor(category, amount) {
 }
 
 function transactionKey(tx) {
-  return [tx.accountId || 'unassigned', tx.date, tx.merchant.toLowerCase(), Number(tx.amount).toFixed(2)].join('|');
+  return [tx.accountId || 'unassigned', tx.date, tx.merchant.toLowerCase(), Number(tx.amount).toFixed(2), tx.balance || ''].join('|');
 }
 
 function parseTransactionsCsv(text, accountId = 'lloyds-personal') {
@@ -749,6 +749,7 @@ function TransactionsPage({ data, save }) {
   const [draft, setDraft] = useState({ merchant: '', amount: '', direction: 'out', accountId: 'lloyds-personal', category: 'Shopping', classification: 'Planned', date: todayIso });
   const [importSummary, setImportSummary] = useState('');
   const csvRef = useRef(null);
+  const pdfRef = useRef(null);
   const list = data.transactions
     .filter((tx) => filter === 'all' || tx.category === filter || tx.type === filter)
     .filter((tx) => tx.merchant.toLowerCase().includes(query.toLowerCase()));
@@ -783,6 +784,26 @@ function TransactionsPage({ data, save }) {
     }
     event.target.value = '';
   };
+  const importPdfs = async (event) => {
+    const files = [...(event.target.files || [])];
+    if (!files.length) return;
+    try {
+      setImportSummary(`Reading ${files.length} PDF statement${files.length === 1 ? '' : 's'}...`);
+      const { parseLloydsStatementPdf } = await import('./integrations/lloydsPdf.js');
+      const imported = (await Promise.all(files.map((file) => parseLloydsStatementPdf(file, selectedImportAccount)))).flat();
+      save((current) => {
+        const existing = new Set(current.transactions.map(transactionKey));
+        const fresh = imported.filter((tx) => !existing.has(transactionKey(tx)));
+        const moneyIn = fresh.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0);
+        const moneyOut = Math.abs(fresh.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + tx.amount, 0));
+        setImportSummary(`Imported ${fresh.length} PDF transactions. In ${currency.format(moneyIn)}, out ${currency.format(moneyOut)}. Skipped ${imported.length - fresh.length} duplicates.`);
+        return { ...current, transactions: [...current.transactions, ...fresh].sort((a, b) => a.date.localeCompare(b.date)) };
+      });
+    } catch (error) {
+      setImportSummary(error instanceof Error ? error.message : 'PDF import failed');
+    }
+    event.target.value = '';
+  };
   return (
     <main className="stack">
       <section>
@@ -795,12 +816,14 @@ function TransactionsPage({ data, save }) {
       </section>
       <section className="card form">
         <h2>Import Lloyds history</h2>
-        <p className="subtle">Use the PDF converter for monthly statements, then import the generated CSV here. Pick the statement account first.</p>
+        <p className="subtle">Choose the statement account, then import one or more monthly PDF statements. Converted CSV import is still available as a backup.</p>
         <label>Statement account<select value={selectedImportAccount} onChange={(event) => setSelectedImportAccount(event.target.value)}>
           {accountsFor(data).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
         </select></label>
+        <input ref={pdfRef} className="hidden-file" type="file" accept="application/pdf,.pdf" multiple onChange={importPdfs} />
         <input ref={csvRef} className="hidden-file" type="file" accept=".csv,text/csv" onChange={importCsv} />
-        <button className="secondary-btn" onClick={() => csvRef.current?.click()}><Upload size={18} /> Import CSV</button>
+        <button className="primary-btn" onClick={() => pdfRef.current?.click()}><Upload size={18} /> Import PDF statements</button>
+        <button className="secondary-btn" onClick={() => csvRef.current?.click()}><Upload size={18} /> Import converted CSV</button>
         {importSummary && <p className="pill safe"><CheckCircle2 size={16} /> {importSummary}</p>}
       </section>
       <section className="card form">
