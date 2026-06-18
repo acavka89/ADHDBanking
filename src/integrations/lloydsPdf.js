@@ -1,4 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import pdfWorkerSrc from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
 const amountPattern = /^-?\d{1,3}(?:,\d{3})*(?:\.\d{2})\.?$/;
 const datePattern = /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2,4})\.?$/;
@@ -106,7 +109,7 @@ async function pageTransactions(page, fileName, accountId) {
 
 export async function parseLloydsStatementPdf(file, accountId) {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const pdf = await pdfjsLib.getDocument({ data: bytes, disableWorker: true }).promise;
+  const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
   const transactions = [];
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
