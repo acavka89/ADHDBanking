@@ -819,7 +819,7 @@ function TransactionsPage({ data, save }) {
           {accountsFor(data).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
         </select></label>
         <label>PDF statements
-          <input className="file-input" type="file" multiple onChange={importPdfs} />
+          <input className="file-input" type="file" multiple accept=".pdf,application/pdf" onChange={importPdfs} />
         </label>
         <label>Converted CSV backup
           <input className="file-input" type="file" accept=".csv,text/csv,application/vnd.ms-excel" onChange={importCsv} />
