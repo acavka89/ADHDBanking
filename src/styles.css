@@ -37,7 +37,10 @@ button { cursor: pointer; }
   width: min(100%, 640px);
   min-height: 100vh;
   margin: 0 auto;
-  padding: 0 20px 106px;
+  /* env() vars push content clear of the iPhone status bar (top) and
+     home indicator (bottom). Falls back to 0 on non-notched devices. */
+  padding: env(safe-area-inset-top, 0px) 20px
+    calc(106px + env(safe-area-inset-bottom, 0px));
   overflow-x: hidden;
 }
 
@@ -114,7 +117,7 @@ button { cursor: pointer; }
   position: fixed;
   z-index: 30;
   left: 50%;
-  bottom: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   width: min(calc(100% - 24px), 600px);
   display: grid;
