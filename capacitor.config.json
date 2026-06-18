@@ -1,0 +1,13 @@
+{
+  "appId": "com.acavka89.safespend",
+  "appName": "SafeSpend",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "automatic"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0
+    }
+  }
+}

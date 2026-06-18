@@ -8,3 +8,10 @@ imports/*.json
 __pycache__/
 *.pyc
 .DS_Store
+
+# iOS build artifacts (keep source, ignore build output)
+ios/App/build/
+ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+ios/App/*.xcworkspace/xcuserdata/
+ios/App/Pods/
+ios/App/DerivedData/
