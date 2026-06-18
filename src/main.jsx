@@ -788,7 +788,20 @@ function TransactionsPage({ data, save }) {
     try {
       setImportSummary(`Reading ${files.length} statement file${files.length === 1 ? '' : 's'}...`);
       const { parseLloydsStatementPdf } = await import('./integrations/lloydsPdf.js');
-      const imported = (await Promise.all(files.map((file) => parseLloydsStatementPdf(file, selectedImportAccount)))).flat();
+      const results = await Promise.all(files.map((file) => parseLloydsStatementPdf(file, selectedImportAccount)));
+      const imported = results.flatMap((result) => result.transactions);
+      if (!imported.length) {
+        const diag = results.map((result) => result.diagnostics);
+        const totalRows = diag.reduce((sum, d) => sum + d.rows, 0);
+        const totalDated = diag.reduce((sum, d) => sum + d.datedRows, 0);
+        setImportSummary(
+          totalRows === 0
+            ? 'No readable text found in these PDFs. They may be scanned images rather than text statements.'
+            : `Read ${totalRows} lines (${totalDated} with a date) but matched 0 transactions. The statement layout may differ — use the converted CSV backup below.`
+        );
+        event.target.value = '';
+        return;
+      }
       save((current) => {
         const existing = new Set(current.transactions.map(transactionKey));
         const fresh = imported.filter((tx) => !existing.has(transactionKey(tx)));
