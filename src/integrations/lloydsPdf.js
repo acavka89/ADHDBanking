@@ -3,11 +3,10 @@ import pdfWorkerSrc from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
-// Matches a money figure with two decimals, with or without thousands
-// separators, e.g. 1,234.56, 2154.50 or -42.00. The lookbehind/lookahead stop
-// it from matching a fragment of a longer number. Dates, sort codes and
-// account numbers have no two-decimal part, so they are not picked up here.
-const amountPattern = /(?<![\d.,])-?\d[\d,]*\.\d{2}(?!\d)/g;
+// No lookbehind assertion here — WebKit/Safari added lookbehind support only in
+// iOS 16.4. Instead we match broadly and reject fragment matches by checking the
+// preceding character in parseAmounts() below.
+const rawAmountRe = /-?\d[\d,]*\.\d{2}(?!\d)/g;
 
 // Flexible date matcher: "12 Jun 25", "12 June 2025", "12/06/25", "12-06-2025".
 const datePattern = /\b(\d{1,2})[ /-]([A-Za-z]{3,9}|\d{1,2})[ /-](\d{2,4})\b/;
@@ -58,13 +57,25 @@ function parseDate(value) {
 }
 
 function parseAmounts(line) {
-  return (line.match(amountPattern) || []).map((value) => Number(value.replace(/,/g, '')));
+  // Manually reject fragment matches instead of using a lookbehind assertion
+  // (lookbehind requires iOS 16.4+; this approach works on any iOS version).
+  rawAmountRe.lastIndex = 0;
+  const results = [];
+  let m;
+  while ((m = rawAmountRe.exec(line)) !== null) {
+    const charBefore = m.index > 0 ? line[m.index - 1] : '';
+    if (!/[\d.,]/.test(charBefore)) {
+      results.push(Number(m[0].replace(/,/g, '')));
+    }
+  }
+  return results;
 }
 
 function cleanDescription(line) {
+  // Simple broad replacement is fine here — we just want the merchant name.
   return line
     .replace(datePattern, ' ')
-    .replace(amountPattern, ' ')
+    .replace(/-?\d[\d,]*\.\d{2}/g, ' ')
     .replace(/\s+/g, ' ')
     .replace(/^[\s-]+|[\s-]+$/g, '')
     .trim();
@@ -115,6 +126,9 @@ function rowsFromItems(items) {
 async function pageRows(page) {
   const content = await page.getTextContent();
   const items = content.items
+    // pdfjs can return TextMarkedContent objects (no .str / .transform) mixed in
+    // with real TextItem objects — filter to only items we can actually use.
+    .filter((item) => typeof item.str === 'string' && Array.isArray(item.transform))
     .map((item) => ({ str: item.str.trim(), x: item.transform[4], y: item.transform[5] }))
     .filter((item) => item.str);
   return rowsFromItems(items);
@@ -122,7 +136,9 @@ async function pageRows(page) {
 
 export async function parseLloydsStatementPdf(file, accountId) {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+  // isEvalSupported: false makes pdfjs use compatible code paths in WebView
+  // environments that restrict eval (e.g. Capacitor WKWebView).
+  const pdf = await pdfjsLib.getDocument({ data: bytes, isEvalSupported: false }).promise;
 
   const transactions = [];
   const diagnostics = { fileName: file.name, pages: pdf.numPages, rows: 0, datedRows: 0, matched: 0 };
