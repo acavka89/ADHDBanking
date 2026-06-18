@@ -218,6 +218,120 @@ function spentBy(data, cats) {
   return Math.abs(data.transactions.filter((tx) => tx.amount < 0 && cats.includes(tx.category)).reduce((sum, tx) => sum + tx.amount, 0));
 }
 
+function detectPlanFromTransactions(transactions) {
+  const result = { profile: {}, recurring: [] };
+  if (!transactions.length) return result;
+
+  // ── Income / payday ──────────────────────────────────────────────────────
+  const incomeTxs = transactions.filter((tx) => tx.amount > 0);
+  if (incomeTxs.length) {
+    const groups = {};
+    for (const tx of incomeTxs) {
+      const key = tx.merchant.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+      (groups[key] ||= []).push(tx);
+    }
+    // Highest-total group = salary
+    const salaryGroup = Object.values(groups).sort(
+      (a, b) => b.reduce((s, t) => s + t.amount, 0) - a.reduce((s, t) => s + t.amount, 0)
+    )[0];
+    const avgIncome = salaryGroup.reduce((s, t) => s + t.amount, 0) / salaryGroup.length;
+    result.profile.monthlyIncome = Math.round(avgIncome * 100) / 100;
+
+    const dayCounts = {};
+    for (const tx of salaryGroup) {
+      const d = new Date(tx.date + 'T12:00:00').getDate();
+      dayCounts[d] = (dayCounts[d] || 0) + 1;
+    }
+    const paydayDay = Number(Object.entries(dayCounts).sort((a, b) => b[1] - a[1])[0][0]);
+    const today = new Date(todayIso + 'T12:00:00');
+    let payday = new Date(today.getFullYear(), today.getMonth(), paydayDay);
+    if (payday <= today) payday = new Date(today.getFullYear(), today.getMonth() + 1, paydayDay);
+    result.profile.payday = payday.toISOString().slice(0, 10);
+  }
+
+  // ── Recurring payments ───────────────────────────────────────────────────
+  const outgoing = transactions.filter((tx) => tx.amount < 0);
+  const byMerchant = {};
+  for (const tx of outgoing) {
+    const key = tx.merchant.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim().slice(0, 40);
+    (byMerchant[key] ||= []).push(tx);
+  }
+
+  const addedKeys = new Set();
+
+  // Strategy A: same merchant, 2+ times, consistent amount and ~monthly/weekly interval
+  for (const [key, txs] of Object.entries(byMerchant)) {
+    if (txs.length < 2) continue;
+    const sorted = [...txs].sort((a, b) => a.date.localeCompare(b.date));
+    const amounts = sorted.map((tx) => Math.abs(tx.amount));
+    const avgAmount = amounts.reduce((s, a) => s + a, 0) / amounts.length;
+    if (amounts.some((a) => Math.abs(a - avgAmount) / Math.max(avgAmount, 0.01) > 0.2)) continue;
+
+    const dates = sorted.map((tx) => new Date(tx.date + 'T12:00:00').getTime());
+    const intervals = dates.slice(1).map((d, i) => (d - dates[i]) / dayMs);
+    const avgInterval = intervals.reduce((s, i) => s + i, 0) / intervals.length;
+    const isMonthly = avgInterval >= 25 && avgInterval <= 35;
+    const isWeekly = avgInterval >= 5 && avgInterval <= 10;
+    if (!isMonthly && !isWeekly) continue;
+    if (intervals.some((i) => Math.abs(i - avgInterval) > 6)) continue;
+
+    const intervalDays = isWeekly ? 7 : 30;
+    const lastMs = new Date(sorted.at(-1).date + 'T12:00:00').getTime();
+    const nextDate = new Date(lastMs + intervalDays * dayMs);
+    const todayMs = new Date(todayIso + 'T12:00:00').getTime();
+    while (nextDate.getTime() < todayMs) nextDate.setDate(nextDate.getDate() + intervalDays);
+
+    addedKeys.add(key);
+    result.recurring.push({
+      id: `auto-${key}`,
+      merchant: sorted.at(-1).merchant,
+      amount: -(Math.round(avgAmount * 100) / 100),
+      nextDate: nextDate.toISOString().slice(0, 10),
+      active: true,
+      status: 'Essential',
+    });
+  }
+
+  // Strategy B: Bills / Subscriptions / Housing / Debt seen even once
+  const billCats = new Set(['Bills', 'Housing', 'Subscriptions', 'Debt']);
+  for (const [key, txs] of Object.entries(byMerchant)) {
+    if (addedKeys.has(key)) continue;
+    const billTxs = txs.filter((tx) => billCats.has(tx.category));
+    if (!billTxs.length) continue;
+    const sorted = [...billTxs].sort((a, b) => a.date.localeCompare(b.date));
+    const avgAmount = sorted.reduce((s, tx) => s + Math.abs(tx.amount), 0) / sorted.length;
+    const lastMs = new Date(sorted.at(-1).date + 'T12:00:00').getTime();
+    const nextDate = new Date(lastMs + 30 * dayMs);
+    const todayMs = new Date(todayIso + 'T12:00:00').getTime();
+    while (nextDate.getTime() < todayMs) nextDate.setDate(nextDate.getDate() + 30);
+
+    result.recurring.push({
+      id: `auto-${key}`,
+      merchant: sorted.at(-1).merchant,
+      amount: -(Math.round(avgAmount * 100) / 100),
+      nextDate: nextDate.toISOString().slice(0, 10),
+      active: true,
+      status: 'Essential',
+    });
+  }
+
+  // ── Category spend averages ──────────────────────────────────────────────
+  const sortedDates = [...transactions.map((tx) => tx.date)].sort();
+  const spanMs = new Date(sortedDates.at(-1) + 'T12:00:00') - new Date(sortedDates[0] + 'T12:00:00');
+  const months = Math.max(1, Math.round(spanMs / (dayMs * 30)) || 1);
+
+  const catSum = (cats) =>
+    transactions.filter((tx) => tx.amount < 0 && cats.includes(tx.category))
+      .reduce((s, tx) => s + Math.abs(tx.amount), 0);
+
+  const foodTravel = catSum(['Food shopping', 'Transport', 'Takeaways']);
+  const debt = catSum(['Debt']);
+  if (foodTravel > 0) result.profile.expectedFoodTravel = Math.round(foodTravel / months);
+  if (debt > 0) result.profile.debtMinimums = Math.round(debt / months);
+
+  return result;
+}
+
 function chooseAction({ data, safeToday, protectedBills, balance, totalScore }) {
   if (protectedBills > balance) return 'Protect essentials only and rebuild the plan from today.';
   if (safeToday < 5) return 'Use Recovery Mode to make the next few days easier.';
@@ -447,6 +561,7 @@ function PlanPage({ data, save, stats, setActive }) {
         <h1 className="h1">Current pay-cycle plan</h1>
         <p className="subtle">Your account balance gets jobs before any guilt-free spending is shown.</p>
       </section>
+      <AutoFillCard data={data} save={save} />
       <section className="card form">
         <div className="inline-fields">
           <label>Next payday<input type="date" value={data.profile.payday} onChange={(event) => setProfile({ payday: event.target.value })} /></label>
@@ -495,6 +610,86 @@ function PlanPage({ data, save, stats, setActive }) {
         {data.recurring.map((item) => <RecurringRow key={item.id} item={item} />)}
       </section>
     </main>
+  );
+}
+
+function AutoFillCard({ data, save }) {
+  const [preview, setPreview] = useState(null);
+  const [applied, setApplied] = useState(false);
+
+  if (!data.transactions.length) return null;
+
+  const detect = () => {
+    setPreview(detectPlanFromTransactions(data.transactions));
+    setApplied(false);
+  };
+
+  const apply = () => {
+    save((current) => ({
+      ...current,
+      profile: { ...current.profile, ...preview.profile },
+      recurring: [
+        ...current.recurring.filter((r) => !r.id.startsWith('auto-')),
+        ...preview.recurring,
+      ],
+    }));
+    setApplied(true);
+    setPreview(null);
+  };
+
+  if (applied) {
+    return (
+      <section className="card">
+        <p className="pill safe"><CheckCircle2 size={16} /> Plan filled — review the fields below and adjust if needed.</p>
+      </section>
+    );
+  }
+
+  if (preview) {
+    const { profile, recurring } = preview;
+    return (
+      <section className="card form">
+        <div className="section-title">
+          <h2>Detected from your transactions</h2>
+          <p className="pill safe"><Zap size={15} /> Preview</p>
+        </div>
+        <div className="stack">
+          {profile.monthlyIncome > 0 && (
+            <div className="row"><div className="left"><div className="avatar"><Banknote size={20} /></div><div><p className="title">Monthly income</p><p className="meta">Next payday {profile.payday}</p></div></div><strong>{currency.format(profile.monthlyIncome)}</strong></div>
+          )}
+          {profile.expectedFoodTravel > 0 && (
+            <div className="row"><div className="left"><div className="avatar"><ShoppingBag size={20} /></div><div><p className="title">Food and travel avg.</p><p className="meta">Per month from history</p></div></div><strong>{currency.format(profile.expectedFoodTravel)}</strong></div>
+          )}
+          {profile.debtMinimums > 0 && (
+            <div className="row"><div className="left"><div className="avatar"><CreditCard size={20} /></div><div><p className="title">Debt minimums avg.</p><p className="meta">Per month from history</p></div></div><strong>{currency.format(profile.debtMinimums)}</strong></div>
+          )}
+          {recurring.length > 0 && (
+            <div>
+              <p className="meta" style={{ marginBottom: 8 }}>{recurring.length} recurring payments detected</p>
+              {recurring.slice(0, 5).map((item) => (
+                <div className="row compact-row" key={item.id}>
+                  <div className="left"><div className="avatar"><ReceiptText size={18} /></div><div><p className="title">{item.merchant}</p><p className="meta">Next {item.nextDate}</p></div></div>
+                  <strong>{currency.format(item.amount)}</strong>
+                </div>
+              ))}
+              {recurring.length > 5 && <p className="meta">…and {recurring.length - 5} more</p>}
+            </div>
+          )}
+        </div>
+        <button className="primary-btn" onClick={apply}><CheckCircle2 size={18} /> Apply to plan</button>
+        <button className="secondary-btn" onClick={() => setPreview(null)}>Cancel</button>
+      </section>
+    );
+  }
+
+  const planEmpty = !data.profile.monthlyIncome && !data.recurring.length;
+  return (
+    <section className="card">
+      {planEmpty && <p className="pill warn"><BellRing size={15} /> Plan not filled yet</p>}
+      <h2>Auto-fill from transactions</h2>
+      <p className="subtle">Detect income, payday, recurring bills, and spending averages from your {data.transactions.length} imported transactions.</p>
+      <button className="primary-btn" onClick={detect}><Zap size={18} /> Detect now</button>
+    </section>
   );
 }
 
