@@ -81,91 +81,41 @@ const classifications = [
 ];
 
 const seed = {
-  version: 2,
+  version: 3,
   profile: {
-    displayName: 'Adam',
-    payday: '2026-06-21',
-    monthlyIncome: 2450,
-    expectedFoodTravel: 350,
-    debtMinimums: 125,
-    savingsGoal: 500,
-    currentSavings: 325,
-    emergencyBuffer: 100,
-    forgottenCostBuffer: 75,
-    reviewStreak: 4,
+    displayName: '',
+    payday: '',
+    monthlyIncome: 0,
+    expectedFoodTravel: 0,
+    debtMinimums: 0,
+    savingsGoal: 0,
+    currentSavings: 0,
+    emergencyBuffer: 0,
+    forgottenCostBuffer: 0,
+    reviewStreak: 0,
     bankConnected: false,
     trading212Connected: false,
     notifications: true,
-    recoveryRoute: 'gentle',
+    recoveryRoute: '',
   },
   accounts: [
     { id: 'lloyds-personal', name: 'Lloyds personal', institution: 'Lloyds', purpose: 'personal', balance: 0, includeInSafeSpend: true },
     { id: 'halifax-joint', name: 'Halifax joint', institution: 'Halifax', purpose: 'household', balance: 0, includeInSafeSpend: true },
   ],
-  transactions: [
-    { id: 1, accountId: 'lloyds-personal', merchant: 'Lloyds current account', category: 'Income', classification: 'Essential', amount: 2450, date: '2026-05-21', type: 'income' },
-    { id: 2, accountId: 'halifax-joint', merchant: 'Rent / mortgage', category: 'Housing', classification: 'Essential', amount: -780, date: '2026-06-01', type: 'bill' },
-    { id: 3, accountId: 'halifax-joint', merchant: 'Council tax', category: 'Bills', classification: 'Essential', amount: -148, date: '2026-06-03', type: 'bill' },
-    { id: 4, accountId: 'halifax-joint', merchant: 'Aldi', category: 'Food shopping', classification: 'Planned', amount: -34.6, date: '2026-06-14', type: 'spend' },
-    { id: 5, accountId: 'lloyds-personal', merchant: 'Tesco meal deal', category: 'Food shopping', classification: 'Enjoyed it', amount: -4.25, date: '2026-06-15', type: 'spend' },
-    { id: 6, accountId: 'lloyds-personal', merchant: 'Trading 212 SIPP', category: 'Savings', classification: 'Essential', amount: -75, date: '2026-06-10', type: 'invest' },
-    { id: 7, accountId: 'lloyds-personal', merchant: 'Real ale / pub', category: 'Entertainment', classification: 'Enjoyed it', amount: -22.8, date: '2026-06-15', type: 'spend' },
-    { id: 8, accountId: 'lloyds-personal', merchant: 'Victory Pro software', category: 'Shopping', classification: 'Work expense', amount: -18, date: '2026-06-12', type: 'spend' },
-  ],
-  recurring: [
-    { id: 1, merchant: 'Rent / mortgage', amount: 780, nextDate: '2026-07-01', status: 'Essential', active: true },
-    { id: 2, merchant: 'Council tax', amount: 148, nextDate: '2026-07-03', status: 'Essential', active: true },
-    { id: 3, merchant: 'Energy', amount: 130, nextDate: '2026-06-18', status: 'Essential', active: true },
-    { id: 4, merchant: 'Phone', amount: 23, nextDate: '2026-06-22', status: 'Essential', active: true },
-    { id: 5, merchant: 'Streaming bundle', amount: 38.97, nextDate: '2026-06-26', status: 'Could reduce', active: true },
-    { id: 6, merchant: 'Cloud storage', amount: 9.99, nextDate: '2026-06-28', status: 'Not sure', active: true },
-  ],
-  pauses: [
-    { id: 1, item: 'New wrestling graphics pack', amount: 49, link: '', reason: 'Useful, but not urgent', createdAt: Date.now() - 1000 * 60 * 60 * 4, reviewAt: Date.now() + 1000 * 60 * 60 * 20 },
-    { id: 2, item: 'DJI accessory kit', amount: 79, link: '', reason: 'Could wait until payday', createdAt: Date.now() - 1000 * 60 * 60 * 28, reviewAt: Date.now() - 1000 * 60 * 60 * 4 },
-  ],
-  opportunities: [
-    { id: 1, type: 'Recurring subscription', merchant: 'Streaming bundle', saving: 38.97, confidence: 86, prompt: 'Is this still useful every month?', response: 'Remind me later' },
-    { id: 2, type: 'Convenience spending', merchant: 'Lunch runs', saving: 24, confidence: 62, prompt: 'A few small food purchases may be adding up.', response: 'Not reviewed' },
-    { id: 3, type: 'Forgotten cost', merchant: 'Cloud storage', saving: 9.99, confidence: 74, prompt: 'This looks like a quiet recurring payment.', response: 'Not reviewed' },
-  ],
-  goals: [
-    { id: 1, name: 'Emergency buffer', target: 500, current: 325, priority: 'High' },
-    { id: 2, name: 'Forgotten-cost buffer', target: 250, current: 75, priority: 'Medium' },
-  ],
-  scoreHistory: [
-    { date: '2026-06-14', score: 642 },
-    { date: '2026-06-15', score: 658 },
-    { date: todayIso, score: 681 },
-  ],
+  transactions: [],
+  recurring: [],
+  pauses: [],
+  opportunities: [],
+  goals: [],
+  scoreHistory: [],
 };
 
+// Anything that is not the current empty-state version is replaced with a fresh
+// blank slate. This clears the old demo data so every screen reflects real
+// imported/entered figures rather than seeded examples.
 function migrateData(raw) {
-  if (!raw || raw.version === 2) return raw || seed;
-  return {
-    ...seed,
-    profile: { ...seed.profile, ...(raw.profile || {}) },
-    accounts: raw.accounts || seed.accounts,
-    transactions: (raw.transactions || seed.transactions).map((tx) => ({
-      id: tx.id,
-      accountId: tx.accountId || (['Housing', 'Bills'].includes(tx.category) ? 'halifax-joint' : 'lloyds-personal'),
-      merchant: tx.merchant || tx.name,
-      category: tx.category,
-      classification: tx.classification || tx.userClassification || 'Planned',
-      amount: tx.amount,
-      date: tx.date,
-      type: tx.type,
-    })),
-    recurring: raw.recurring || (raw.bills || seed.recurring).map((bill) => ({
-      id: bill.id,
-      merchant: bill.name,
-      amount: bill.amount,
-      nextDate: nextMonthlyDate(bill.date || 1),
-      status: bill.protected ? 'Essential' : 'Could reduce',
-      active: true,
-    })),
-    pauses: raw.pauses || raw.coolingOff || seed.pauses,
-  };
+  if (raw && raw.version === 3) return raw;
+  return seed;
 }
 
 function useStoredState() {
@@ -198,13 +148,6 @@ function accountPurpose(data, accountId) {
   return accountsFor(data).find((account) => account.id === accountId)?.purpose || 'personal';
 }
 
-function nextMonthlyDate(day) {
-  const date = new Date(todayIso + 'T00:00:00');
-  date.setDate(Number(day));
-  if (date.toISOString().slice(0, 10) < todayIso) date.setMonth(date.getMonth() + 1);
-  return date.toISOString().slice(0, 10);
-}
-
 function daysBetween(date) {
   const start = new Date(todayIso + 'T00:00:00');
   const end = new Date(date + 'T00:00:00');
@@ -224,7 +167,7 @@ function derive(data) {
   const includedTransactions = data.transactions.filter((tx) => !tx.accountId || includedAccountIds.has(tx.accountId));
   const debits = includedTransactions.filter((tx) => tx.amount < 0);
   const balance = data.profile.monthlyIncome + debits.reduce((sum, tx) => sum + tx.amount, 0);
-  const daysUntilPayday = Math.max(1, daysBetween(data.profile.payday));
+  const daysUntilPayday = data.profile.payday ? Math.max(1, daysBetween(data.profile.payday)) : 30;
   const protectedBills = data.recurring
     .filter((item) => item.active && item.status === 'Essential' && isBeforePayday(item.nextDate, data.profile.payday))
     .reduce((sum, item) => sum + item.amount, 0);
@@ -467,9 +410,9 @@ function HomePage({ data, stats, setActive }) {
           <h2>Next expected payments</h2>
           <button className="text-btn" onClick={() => setActive('plan')}>Plan <ChevronRight size={16} /></button>
         </div>
-        {stats.nextPayments.map((item) => (
-          <RecurringRow key={item.id} item={item} compact />
-        ))}
+        {stats.nextPayments.length
+          ? stats.nextPayments.map((item) => <RecurringRow key={item.id} item={item} compact />)
+          : <p className="subtle">No upcoming payments yet. Add them in Plan.</p>}
       </section>
 
       <section className="card">
@@ -477,7 +420,9 @@ function HomePage({ data, stats, setActive }) {
           <h2>Recent activity</h2>
           <button className="text-btn" onClick={() => setActive('transactions')}>All <ChevronRight size={16} /></button>
         </div>
-        {data.transactions.slice(-4).reverse().map((tx) => <TransactionRow key={tx.id} tx={tx} data={data} />)}
+        {data.transactions.length
+          ? data.transactions.slice(-4).reverse().map((tx) => <TransactionRow key={tx.id} tx={tx} data={data} />)
+          : <p className="subtle">No transactions yet. Import a statement or add one in Transactions.</p>}
       </section>
     </main>
   );
@@ -657,6 +602,11 @@ function OpportunitiesPage({ data, save }) {
         <h1 className="h1">Possible savings</h1>
         <p className="subtle">The app asks and learns. It does not decide that a purchase was wrong.</p>
       </section>
+      {data.opportunities.length === 0 && (
+        <section className="card">
+          <p className="subtle">No savings suggestions yet. They appear as the app learns from your transactions.</p>
+        </section>
+      )}
       {data.opportunities.map((item) => (
         <section className="card opportunity" key={item.id}>
           <div className="section-title">
@@ -990,7 +940,7 @@ function SettingsPage({ data, save, reset, setActive, session, integrationStatus
         <button className="secondary-btn" onClick={exportData}><Download size={18} /> Export data</button>
         <button className="secondary-btn" onClick={() => fileRef.current?.click()}><Upload size={18} /> Import data</button>
         <button className="secondary-btn" onClick={() => setActive('transactions')}><CreditCard size={18} /> Manual corrections</button>
-        <button className="danger-btn" onClick={reset}><RefreshCw size={18} /> Reset demo data</button>
+        <button className="danger-btn" onClick={() => { if (window.confirm('Clear all local data and start from a blank slate?')) reset(); }}><RefreshCw size={18} /> Reset all data</button>
       </section>
       <p className="legal">Information and budgeting support only. This is not financial advice.</p>
     </main>
