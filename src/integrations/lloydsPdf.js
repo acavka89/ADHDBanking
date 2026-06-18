@@ -8,6 +8,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 // preceding character in parseAmounts() below.
 const rawAmountRe = /-?\d[\d,]*\.\d{2}(?!\d)/g;
 
+// Lloyds statement transaction type codes that appear in the Type column.
+// We strip these from the description so merchant names stay clean.
+const txTypeRe = /\b(BGC|BP|CHG|CHQ|COR|CPT|DD|DEB|DEP|FEE|FPI|FPO|MPI|MPO|PAY|SO|TFR)\b/g;
+
 // Flexible date matcher: "12 Jun 25", "12 June 2025", "12/06/25", "12-06-2025".
 const datePattern = /\b(\d{1,2})[ /-]([A-Za-z]{3,9}|\d{1,2})[ /-](\d{2,4})\b/;
 
@@ -39,6 +43,9 @@ const noisePhrases = [
   'halifax',
   'your transactions',
   'balance carried forward',
+  'balance on ',
+  'transaction types',
+  'blank.',
 ];
 
 function looksLikeNoise(line) {
@@ -72,10 +79,16 @@ function parseAmounts(line) {
 }
 
 function cleanDescription(line) {
-  // Simple broad replacement is fine here — we just want the merchant name.
   return line
     .replace(datePattern, ' ')
     .replace(/-?\d[\d,]*\.\d{2}/g, ' ')
+    // Strip Lloyds type codes (DEB, FPI, SO, etc.) that appear in the Type column
+    .replace(txTypeRe, ' ')
+    // Dots used as PDF column-separator leaders always appear flanked by spaces;
+    // replace " . " and trim any leading/trailing standalone dots.
+    .replace(/ \. /g, ' ')
+    .replace(/^\. */, '')
+    .replace(/ *\.$/, '')
     .replace(/\s+/g, ' ')
     .replace(/^[\s-]+|[\s-]+$/g, '')
     .trim();
@@ -155,7 +168,9 @@ export async function parseLloydsStatementPdf(file, accountId) {
       // Capture the opening figure so the first real transaction can be signed
       // from the balance movement.
       if (looksLikeNoise(text)) {
-        if (/balance brought forward/i.test(text) && amounts.length) {
+        // "Balance brought forward" (older statements) or "Balance on 01 Feb 26"
+        // (newer Club Lloyds format) both give us the opening balance.
+        if (/balance (brought forward|on \d)/i.test(text) && amounts.length) {
           previousBalance = amounts[amounts.length - 1];
         }
         continue;
