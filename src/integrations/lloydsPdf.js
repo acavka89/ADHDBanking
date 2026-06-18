@@ -1,7 +1,11 @@
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import pdfWorkerSrc from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
+import pdfWorkerContent from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+// pdfjs creates the worker with {type:"module"}. WKWebView in Capacitor blocks
+// module workers loaded from the capacitor:// scheme, so we inline the worker
+// source at build time and serve it via a blob: URL, which always works.
+const _workerBlob = new Blob([pdfWorkerContent], { type: 'application/javascript' });
+pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(_workerBlob);
 
 // No lookbehind assertion here — WebKit/Safari added lookbehind support only in
 // iOS 16.4. Instead we match broadly and reject fragment matches by checking the
