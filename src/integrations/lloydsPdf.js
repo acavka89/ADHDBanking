@@ -1,23 +1,21 @@
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import pdfWorkerContent from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw';
+import * as pdfjsLib from 'pdfjs-dist/build/pdf.js';
+import * as pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.js';
 
-// pdfjs creates the worker with {type:"module"}. WKWebView in Capacitor blocks
-// module workers loaded from the capacitor:// scheme, so we inline the worker
-// source at build time and serve it via a blob: URL, which always works.
-const _workerBlob = new Blob([pdfWorkerContent], { type: 'application/javascript' });
-pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(_workerBlob);
+// pdfjs v3 checks globalThis.pdfjsWorker.WorkerMessageHandler before spawning
+// a web worker. Setting it here makes all PDF parsing run on the main thread,
+// which eliminates every web worker / URL-scheme issue (module workers blocked
+// by WKWebView's capacitor:// scheme, iOS version gaps, etc.).
+globalThis.pdfjsWorker = pdfjsWorker;
 
-// No lookbehind assertion here — WebKit/Safari added lookbehind support only in
-// iOS 16.4. Instead we match broadly and reject fragment matches by checking the
-// preceding character in parseAmounts() below.
+// No lookbehind assertion — WebKit/Safari only added lookbehind support in
+// iOS 16.4. We match broadly and check the preceding character manually.
 const rawAmountRe = /-?\d[\d,]*\.\d{2}(?!\d)/g;
-
-// Lloyds statement transaction type codes that appear in the Type column.
-// We strip these from the description so merchant names stay clean.
-const txTypeRe = /\b(BGC|BP|CHG|CHQ|COR|CPT|DD|DEB|DEP|FEE|FPI|FPO|MPI|MPO|PAY|SO|TFR)\b/g;
 
 // Flexible date matcher: "12 Jun 25", "12 June 2025", "12/06/25", "12-06-2025".
 const datePattern = /\b(\d{1,2})[ /-]([A-Za-z]{3,9}|\d{1,2})[ /-](\d{2,4})\b/;
+
+// Lloyds transaction type codes that appear in the Type column.
+const txTypeRe = /\b(BGC|BP|CHG|CHQ|COR|CPT|DD|DEB|DEP|FEE|FPI|FPO|MPI|MPO|PAY|SO|TFR)\b/g;
 
 const months = {
   jan: '01', january: '01',
@@ -68,8 +66,6 @@ function parseDate(value) {
 }
 
 function parseAmounts(line) {
-  // Manually reject fragment matches instead of using a lookbehind assertion
-  // (lookbehind requires iOS 16.4+; this approach works on any iOS version).
   rawAmountRe.lastIndex = 0;
   const results = [];
   let m;
@@ -86,10 +82,7 @@ function cleanDescription(line) {
   return line
     .replace(datePattern, ' ')
     .replace(/-?\d[\d,]*\.\d{2}/g, ' ')
-    // Strip Lloyds type codes (DEB, FPI, SO, etc.) that appear in the Type column
     .replace(txTypeRe, ' ')
-    // Dots used as PDF column-separator leaders always appear flanked by spaces;
-    // replace " . " and trim any leading/trailing standalone dots.
     .replace(/ \. /g, ' ')
     .replace(/^\. */, '')
     .replace(/ *\.$/, '')
@@ -121,8 +114,6 @@ function round2(value) {
   return Math.round(value * 100) / 100;
 }
 
-// Group raw text items that share a baseline into one logical line, ordered
-// left-to-right, so a row split across many PDF text items reads as one string.
 function rowsFromItems(items) {
   const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
   const rows = [];
@@ -143,8 +134,6 @@ function rowsFromItems(items) {
 async function pageRows(page) {
   const content = await page.getTextContent();
   const items = content.items
-    // pdfjs can return TextMarkedContent objects (no .str / .transform) mixed in
-    // with real TextItem objects — filter to only items we can actually use.
     .filter((item) => typeof item.str === 'string' && Array.isArray(item.transform))
     .map((item) => ({ str: item.str.trim(), x: item.transform[4], y: item.transform[5] }))
     .filter((item) => item.str);
@@ -153,9 +142,7 @@ async function pageRows(page) {
 
 export async function parseLloydsStatementPdf(file, accountId) {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  // isEvalSupported: false makes pdfjs use compatible code paths in WebView
-  // environments that restrict eval (e.g. Capacitor WKWebView).
-  const pdf = await pdfjsLib.getDocument({ data: bytes, isEvalSupported: false }).promise;
+  const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
 
   const transactions = [];
   const diagnostics = { fileName: file.name, pages: pdf.numPages, rows: 0, datedRows: 0, matched: 0 };
@@ -169,11 +156,7 @@ export async function parseLloydsStatementPdf(file, accountId) {
     for (const { text } of rows) {
       const amounts = parseAmounts(text);
 
-      // Capture the opening figure so the first real transaction can be signed
-      // from the balance movement.
       if (looksLikeNoise(text)) {
-        // "Balance brought forward" (older statements) or "Balance on 01 Feb 26"
-        // (newer Club Lloyds format) both give us the opening balance.
         if (/balance (brought forward|on \d)/i.test(text) && amounts.length) {
           previousBalance = amounts[amounts.length - 1];
         }
@@ -191,8 +174,6 @@ export async function parseLloydsStatementPdf(file, accountId) {
       const balance = amounts.length > 1 ? amounts[amounts.length - 1] : null;
       const txAmount = amounts.length > 1 ? amounts[amounts.length - 2] : amounts[0];
 
-      // Preferred: derive direction from how the running balance moved. This is
-      // independent of the statement's column layout, which varies by template.
       let signed;
       if (balance !== null && previousBalance !== null) {
         const delta = round2(balance - previousBalance);
@@ -200,8 +181,6 @@ export async function parseLloydsStatementPdf(file, accountId) {
       } else if (txAmount < 0) {
         signed = txAmount;
       } else {
-        // No balance reference yet and no explicit sign: default to an outgoing,
-        // which is the common case and easy for the user to correct.
         signed = -Math.abs(txAmount);
       }
       signed = round2(signed);
