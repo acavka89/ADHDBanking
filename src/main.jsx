@@ -211,11 +211,49 @@ function derive(data) {
   ];
   const oneAction = chooseAction({ data, safeToday, protectedBills, balance, totalScore });
   const scoreBand = totalScore >= 850 ? 'Strong' : totalScore >= 700 ? 'Steady' : totalScore >= 550 ? 'Building' : totalScore >= 400 ? 'Needs attention' : "Let's make a plan";
-  return { balance, daysUntilPayday, protectedBills, expectedEssentials, buffers, protectedTotal, flexible, safeToday, spentThisCycle, householdSpent, personalSpent, score, totalScore, scoreBand, nextPayments, plan, oneAction };
+  const playMoneySpent = spentBy(data, playMoneyCats);
+  const playMoneyTotal = flexible + playMoneySpent;
+  const flaggedItems = flagTransactions(data.transactions);
+  return { balance, daysUntilPayday, protectedBills, expectedEssentials, buffers, protectedTotal, flexible, safeToday, spentThisCycle, householdSpent, personalSpent, score, totalScore, scoreBand, nextPayments, plan, oneAction, playMoneySpent, playMoneyTotal, flaggedItems };
 }
 
 function spentBy(data, cats) {
   return Math.abs(data.transactions.filter((tx) => tx.amount < 0 && cats.includes(tx.category)).reduce((sum, tx) => sum + tx.amount, 0));
+}
+
+const playMoneyCats = ['Shopping', 'Entertainment', 'Takeaways', 'Other'];
+
+function flagTransactions(transactions) {
+  const flags = [];
+  const seen = new Set();
+
+  // Subscriptions — every unique merchant in that category
+  const subMap = {};
+  for (const tx of transactions) {
+    if (tx.amount >= 0 || tx.category !== 'Subscriptions') continue;
+    const key = tx.merchant.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 28);
+    (subMap[key] ||= []).push(tx);
+  }
+  for (const [key, txs] of Object.entries(subMap)) {
+    seen.add(key);
+    const avg = txs.reduce((s, t) => s + Math.abs(t.amount), 0) / txs.length;
+    flags.push({ id: `sub-${key}`, merchant: txs.at(-1).merchant, monthlyCost: Math.round(avg * 100) / 100, count: txs.length, reason: 'Subscription' });
+  }
+
+  // Habit spending — same place 3+ times at under £15 each
+  const smallMap = {};
+  for (const tx of transactions) {
+    if (tx.amount >= 0 || Math.abs(tx.amount) >= 15 || tx.category === 'Subscriptions') continue;
+    const key = tx.merchant.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 28);
+    (smallMap[key] ||= []).push(tx);
+  }
+  for (const [key, txs] of Object.entries(smallMap)) {
+    if (seen.has(key) || txs.length < 3) continue;
+    const total = txs.reduce((s, t) => s + Math.abs(t.amount), 0);
+    flags.push({ id: `habit-${key}`, merchant: txs.at(-1).merchant, monthlyCost: Math.round(total * 100) / 100, count: txs.length, reason: `${txs.length}× visits` });
+  }
+
+  return flags.sort((a, b) => b.monthlyCost - a.monthlyCost).slice(0, 6);
 }
 
 function detectPlanFromTransactions(transactions) {
@@ -493,6 +531,54 @@ function BottomNav({ active, setActive }) {
   );
 }
 
+function PlayMoneyCard({ data, stats }) {
+  if (!stats.playMoneyTotal) return null;
+  const pct = clamp(Math.round((stats.playMoneySpent / Math.max(stats.playMoneyTotal, 1)) * 100), 0, 100);
+  const tone = pct >= 90 ? 'wait' : pct >= 70 ? 'warn' : 'safe';
+  return (
+    <section className="card">
+      <div className="section-title">
+        <h2>Play money</h2>
+        <span className={`pill ${tone}`}>{currency.format(stats.flexible)} left</span>
+      </div>
+      <div className="row">
+        <div className="left"><div className="avatar"><Banknote size={20} /></div><div><p className="title">After salary, bills &amp; essentials</p></div></div>
+        <strong>{currency.format(stats.playMoneyTotal)}</strong>
+      </div>
+      <div className="row">
+        <div className="left"><div className="avatar"><ShoppingBag size={20} /></div><div><p className="title">Spent so far</p></div></div>
+        <span className="amount negative">-{currency.format(stats.playMoneySpent)}</span>
+      </div>
+      <div className={pct >= 70 ? 'progress warn' : 'progress'} style={{ marginTop: 8 }}>
+        <span style={{ width: `${pct}%` }} />
+      </div>
+      <p className="meta" style={{ marginTop: 6 }}>{pct}% used · {currency.format(stats.safeToday)} safe to spend today</p>
+    </section>
+  );
+}
+
+function WorthReviewingCard({ stats, setActive }) {
+  if (!stats.flaggedItems.length) return null;
+  return (
+    <section className="card">
+      <div className="section-title">
+        <h2>Worth a look</h2>
+        <button className="text-btn" onClick={() => setActive('opportunities')}>All <ChevronRight size={16} /></button>
+      </div>
+      <p className="subtle">Subscriptions and habits that could free up play money.</p>
+      {stats.flaggedItems.slice(0, 4).map((item) => (
+        <div className="row" key={item.id}>
+          <div className="left">
+            <div className="avatar" style={{ color: 'var(--secondary)' }}><Sparkles size={18} /></div>
+            <div><p className="title">{item.merchant}</p><p className="meta">{item.reason}</p></div>
+          </div>
+          <strong>{currency.format(item.monthlyCost)}</strong>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 function HomePage({ data, stats, setActive }) {
   const delta = scoreDelta(data, stats.totalScore);
   return (
@@ -508,6 +594,8 @@ function HomePage({ data, stats, setActive }) {
         <Metric icon={ShieldCheck} label="Protected money" value={currency.format(stats.protectedTotal)} tone="primary" />
         <Metric icon={Gauge} label="SafeSpend Score" value={`${stats.totalScore}`} detail={`${stats.scoreBand} ${delta >= 0 ? '+' : ''}${delta}`} tone="secondary" />
       </section>
+
+      <PlayMoneyCard data={data} stats={stats} />
 
       <section className="action-band">
         <div>
@@ -528,6 +616,8 @@ function HomePage({ data, stats, setActive }) {
           ? stats.nextPayments.map((item) => <RecurringRow key={item.id} item={item} compact />)
           : <p className="subtle">No upcoming payments yet. Add them in Plan.</p>}
       </section>
+
+      <WorthReviewingCard stats={stats} setActive={setActive} />
 
       <section className="card">
         <div className="section-title">
